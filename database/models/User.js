@@ -11,7 +11,23 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true
+    required: function() {
+      // Password is only required if user is not using OAuth
+      return !this.isOAuthUser;
+    }
+  },
+  isOAuthUser: {
+    type: Boolean,
+    default: false
+  },
+  oauthProvider: {
+    type: String,
+    enum: ['loopingbinary'],
+    default: null
+  },
+  oauthId: {
+    type: String,
+    default: null
   },
   name: {
     type: String,
@@ -28,9 +44,9 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Hash password before saving
+// Hash password before saving (only for non-OAuth users)
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (this.isOAuthUser || !this.isModified('password')) return next();
   
   try {
     console.log('Hashing password for user:', this.email);
