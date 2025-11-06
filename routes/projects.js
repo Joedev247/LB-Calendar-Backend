@@ -5,6 +5,8 @@ const { validateProject } = require('../middleware/validation');
 const Project = require('../database/models/Project');
 const Task = require('../database/models/Task');
 const Event = require('../database/models/Event');
+const User = require('../database/models/User');
+const { createNotificationsForUsers } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -56,17 +58,121 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     
     const project = await Project.findById(id)
-      .populate('created_by', 'name')
-      .populate('team_members');
+      .populate('created_by', 'name email')
+      .populate('team_members', 'name email');
     
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    // Get all tasks for this project
+    const tasks = await Task.find({ project_id: id })
+      .populate('project_id', 'name color')
+      .populate('assigned_to', 'name email')
+      .populate('assigned_users', 'name email')
+      .populate('created_by', 'name email')
+      .sort({ createdAt: -1 });
+
+    // Get all events for this project
+    const events = await Event.find({ project_id: id })
+      .populate('project_id', 'name color')
+      .populate('created_by', 'name email')
+      .populate('hosts.user_id', 'name email')
+      .sort({ start_date: 1 });
+
+    // Aggregate all unique team members from tasks
+    const taskTeamMembers = new Set();
+    tasks.forEach(task => {
+      if (task.assigned_users && task.assigned_users.length > 0) {
+        task.assigned_users.forEach(user => {
+          if (user && user._id) {
+            taskTeamMembers.add(user._id.toString());
+          }
+        });
+      }
+      if (task.assigned_to && task.assigned_to._id) {
+        taskTeamMembers.add(task.assigned_to._id.toString());
+      }
+    });
+
+    // Combine project team_members with task team members
+    const allTeamMemberIds = new Set();
+    project.team_members.forEach(member => {
+      if (member && member._id) {
+        allTeamMemberIds.add(member._id.toString());
+      }
+    });
+    taskTeamMembers.forEach(memberId => {
+      allTeamMemberIds.add(memberId);
+    });
+
+    // Get all unique team members with details
+    const User = require('../database/models/User');
+    const uniqueMemberIds = Array.from(allTeamMemberIds);
+    const allMembers = await User.find({ _id: { $in: uniqueMemberIds } })
+      .select('name email');
+
+    // Format tasks
+    const formattedTasks = tasks.map(task => ({
+      ...task.toObject(),
+      id: task._id,
+      project_name: task.project_id?.name,
+      project_color: task.project_id?.color,
+      assigned_to_name: task.assigned_to?.name,
+      assigned_users_names: task.assigned_users?.map(u => ({ id: u._id, name: u.name, email: u.email })) || [],
+      created_by_name: task.created_by?.name,
+      created_by_email: task.created_by?.email
+    }));
+
+    // Format events
+    const formattedEvents = events.map(event => {
+      const formattedHosts = event.hosts.map(host => {
+        if (host.user_id && host.user_id._id) {
+          return {
+            id: host.user_id._id,
+            user_id: host.user_id._id,
+            name: host.user_id.name,
+            email: host.user_id.email,
+            role: host.role || 'Host',
+            is_external: false
+          };
+        } else {
+          return {
+            id: host._id,
+            name: host.name,
+            email: host.email,
+            role: host.role || 'Host',
+            is_external: true
+          };
+        }
+      });
+      
+      return {
+        ...event.toObject(),
+        id: event._id,
+        project_name: event.project_id?.name,
+        project_color: event.project_id?.color,
+        created_by_name: event.created_by?.name,
+        created_by_email: event.created_by?.email,
+        hosts: formattedHosts
+      };
+    });
     
     const formattedProject = {
       ...project.toObject(),
       id: project._id,
-      created_by_name: project.created_by?.name
+      created_by_name: project.created_by?.name,
+      created_by_email: project.created_by?.email,
+      tasks: formattedTasks,
+      events: formattedEvents,
+      members: allMembers.map(member => ({
+        id: member._id,
+        name: member.name,
+        email: member.email
+      })),
+      member_count: allMembers.length,
+      task_count: tasks.length,
+      event_count: events.length
     };
     
     res.json(formattedProject);
@@ -127,6 +233,31 @@ router.post('/', authenticateToken, validateProject, async (req, res) => {
       id: populatedProject._id,
       created_by_name: populatedProject.created_by?.name
     };
+
+    // Notify all users about the new project (excluding creator)
+    try {
+      const allUsers = await User.find({}).select('_id');
+      const creatorId = created_by.toString();
+      const userIdsToNotify = allUsers
+        .map(u => u._id.toString())
+        .filter(id => id !== creatorId);
+      
+      if (userIdsToNotify.length > 0) {
+        const creator = await User.findById(created_by);
+        console.log(`Creating project notifications for ${userIdsToNotify.length} users`);
+        const result = await createNotificationsForUsers(
+          userIdsToNotify,
+          'New project created',
+          `${creator?.name || 'Someone'} created a new project: "${name}"`,
+          'success',
+          `/projects/${project._id}`
+        );
+        console.log(`Project notifications created:`, result?.length || 0);
+      }
+    } catch (notifErr) {
+      console.error('Error creating project notifications:', notifErr);
+      // Don't fail project creation if notifications fail
+    }
     
     res.status(201).json(formattedProject);
   } catch (err) {

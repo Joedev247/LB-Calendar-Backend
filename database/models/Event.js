@@ -26,6 +26,15 @@ const eventSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  is_online: {
+    type: Boolean,
+    default: false
+  },
+  online_platform: {
+    type: String,
+    trim: true,
+    enum: ['zoom', 'google_meet', 'microsoft_teams', 'whatsapp', 'telegram', 'skype', 'webex', 'other']
+  },
   project_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Project'
@@ -34,7 +43,29 @@ const eventSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
-  }
+  },
+  hosts: [{
+    user_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    name: {
+      type: String,
+      trim: true
+    },
+    email: {
+      type: String,
+      trim: true
+    },
+    role: {
+      type: String,
+      trim: true
+    },
+    is_external: {
+      type: Boolean,
+      default: false
+    }
+  }]
 }, {
   timestamps: true // This will add createdAt and updatedAt fields
 });

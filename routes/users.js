@@ -8,12 +8,12 @@ const Notification = require('../database/models/Notification');
 
 const router = express.Router();
 
-// Get all users
-router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
+// Get all users (accessible to all authenticated users for task assignment)
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const users = await User.find({})
       .select('-password')
-      .sort({ createdAt: -1 });
+      .sort({ name: 1 });
     
     const formattedUsers = users.map(user => ({
       ...user.toObject(),
@@ -207,16 +207,31 @@ router.get('/:id/tasks', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, avatar_url } = req.body;
+    const { name, email, department, avatar_url } = req.body;
     
     // Users can only update their own profile
     if (id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Permission denied' });
     }
     
+    // Check if email is already taken (if email is being updated)
+    if (email) {
+      const existingUser = await User.findOne({ email, _id: { $ne: id } });
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email already in use' });
+      }
+    }
+    
+    // Build update object
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (department) updateData.department = department;
+    if (avatar_url) updateData.avatar_url = avatar_url;
+    
     const user = await User.findByIdAndUpdate(
       id,
-      { name, avatar_url },
+      updateData,
       { new: true }
     ).select('-password');
     

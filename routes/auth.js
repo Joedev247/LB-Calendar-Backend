@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../database/models/User');
 const { validateUser } = require('../middleware/validation');
 const config = require('../config');
+const { createNotificationsForUsers } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ async function getLBUserInfo(accessToken) {
 
 // Register
 router.post('/register', validateUser, async (req, res) => {
-  const { email, password, name } = req.body;
+  const { email, password, name, department } = req.body;
 
   try {
     // Check if user already exists
@@ -73,11 +74,31 @@ router.post('/register', validateUser, async (req, res) => {
       email,
       password,
       name,
-      role: 'user'
+      role: 'user',
+      department: department || 'Other'
     });
 
+    // Notify all existing users about the new user signup (excluding the new user)
+    try {
+      const allUsers = await User.find({ _id: { $ne: user._id } }).select('_id');
+      const userIdsToNotify = allUsers.map(u => u._id.toString());
+      
+      if (userIdsToNotify.length > 0) {
+        await createNotificationsForUsers(
+          userIdsToNotify,
+          'New Team Member',
+          `${name} (${department || 'Other'}) just joined the team! Welcome them to the company.`,
+          'success',
+          '/members'
+        );
+      }
+    } catch (notifErr) {
+      console.error('Error creating new user notifications:', notifErr);
+      // Don't fail registration if notifications fail
+    }
+
     const token = jwt.sign(
-      { id: user._id, email, name, role: 'user' },
+      { id: user._id, email, name, role: 'user', department: user.department },
       config.jwtSecret,
       { expiresIn: '24h' }
     );
@@ -85,7 +106,7 @@ router.post('/register', validateUser, async (req, res) => {
     res.status(201).json({
       message: 'User created successfully',
       token,
-      user: { id: user._id, email, name, role: 'user' }
+      user: { id: user._id, email, name, role: 'user', department: user.department }
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -132,7 +153,7 @@ router.post('/login', async (req, res) => {
     res.json({
       message: 'Login successful',
       token,
-      user: { id: user._id, email: user.email, name: user.name, role: user.role }
+      user: { id: user._id, email: user.email, name: user.name, role: user.role, department: user.department }
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -161,7 +182,8 @@ router.get('/me', async (req, res) => {
       id: user._id,
       email: user.email,
       name: user.name,
-      role: user.role
+      role: user.role,
+      department: user.department
     }});
   } catch (err) {
     console.error('Auth error:', err);
@@ -256,8 +278,28 @@ router.get('/oauth/callback', async (req, res) => {
         oauthProvider: 'loopingbinary',
         oauthId: lbUserData.id?.toString(),
         role: 'user',
+        department: 'Other',
         lastLogin: new Date()
       });
+
+      // Notify all existing users about the new OAuth user signup
+      try {
+        const allUsers = await User.find({ _id: { $ne: user._id } }).select('_id');
+        const userIdsToNotify = allUsers.map(u => u._id.toString());
+        
+        if (userIdsToNotify.length > 0) {
+          await createNotificationsForUsers(
+            userIdsToNotify,
+            'New Team Member',
+            `${user.name} just joined the team via OAuth! Welcome them to the company.`,
+            'success',
+            '/members'
+          );
+        }
+      } catch (notifErr) {
+        console.error('Error creating OAuth user notifications:', notifErr);
+        // Don't fail OAuth login if notifications fail
+      }
     }
 
     // Generate JWT token for our application

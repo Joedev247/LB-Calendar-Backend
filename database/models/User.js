@@ -38,6 +38,32 @@ const userSchema = new mongoose.Schema({
     enum: ['admin', 'user'],
     default: 'user'
   },
+  department: {
+    type: String,
+    enum: [
+      'Frontend Developer',
+      'Backend Developer',
+      'Fullstack Developer',
+      'Mobile Developer',
+      'DevOps Developer',
+      'Cloud Engineer',
+      'Figma Designer',
+      'Tester',
+      'Penetration Tester',
+      'AI Engineer',
+      'Data Analyst',
+      'Design',
+      'Product',
+      'Marketing',
+      'Sales',
+      'HR',
+      'Finance',
+      'Operations',
+      'Support',
+      'Other'
+    ],
+    default: 'Other'
+  },
   profileImage: String,
   lastLogin: Date
 }, {

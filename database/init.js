@@ -31,6 +31,7 @@ const connectDB = async () => {
       console.log('Default admin user created');
     }
 
+    return conn;
   } catch (error) {
     console.error('Error connecting to MongoDB:', error);
     process.exit(1);

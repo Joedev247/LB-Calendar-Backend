@@ -4,9 +4,11 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const path = require('path');
 const mongoose = require('mongoose');
+const fs = require('fs');
 
 const config = require('./config');
 const connectDB = require('./database/init');
+const { startReminderService } = require('./services/reminderService');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -16,6 +18,7 @@ const projectsRoutes = require('./routes/projects');
 const usersRoutes = require('./routes/users');
 const chatRoutes = require('./routes/chat');
 const settingsRoutes = require('./routes/settings');
+const notificationsRoutes = require('./routes/notifications');
 
 const app = express();
 
@@ -77,6 +80,13 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Serve static files from uploads directory
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
@@ -94,6 +104,7 @@ app.use('/api/projects', projectsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -132,7 +143,10 @@ process.on('SIGINT', () => {
 });
 
 // Connect to MongoDB
-connectDB();
+connectDB().then(() => {
+  // Start reminder service after database connection is established
+  startReminderService();
+});
 
 const PORT = config.port;
 

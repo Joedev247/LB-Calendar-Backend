@@ -26,7 +26,7 @@ router.get('/', auth, async (req, res) => {
 // Update account settings
 router.put('/account', auth, async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, department } = req.body;
 
     // Check if email is already taken
     if (email) {
@@ -36,17 +36,40 @@ router.put('/account', auth, async (req, res) => {
       }
     }
 
+    // Build update object
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (department) updateData.department = department;
+
     // Update user profile
-    await User.findByIdAndUpdate(req.user.id, { name, email });
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user.id,
+      updateData,
+      { new: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
 
     // Update settings
     await UserSettings.findOneAndUpdate(
       { userId: req.user.id },
-      { name, email },
+      { name: updatedUser.name, email: updatedUser.email, department: updatedUser.department },
       { upsert: true, new: true }
     );
 
-    res.json({ message: 'Account settings updated successfully' });
+    // Return updated user data
+    const formattedUser = {
+      ...updatedUser.toObject(),
+      id: updatedUser._id
+    };
+
+    res.json({ 
+      message: 'Account settings updated successfully',
+      user: formattedUser
+    });
   } catch (error) {
     console.error('Error updating account settings:', error);
     res.status(500).json({ message: 'Server error' });
