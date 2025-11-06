@@ -26,7 +26,18 @@ const app = express();
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, or curl)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('CORS: Allowing request with no origin');
+      return callback(null, true);
+    }
+    
+    console.log(`CORS: Checking origin: ${origin}`);
+    
+    // Always allow localhost origins (for local development connecting to production backend)
+    if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+      console.log(`CORS: Allowing localhost origin: ${origin}`);
+      return callback(null, true);
+    }
     
     const allowedOrigins = process.env.NODE_ENV === 'production' 
       ? ['https://lb-calendar.vercel.app']
@@ -46,25 +57,26 @@ const corsOptions = {
       allowedOrigins.push(process.env.FRONTEND_URL);
     }
     
-    // In development, allow all localhost origins
-    if (process.env.NODE_ENV === 'development' && origin && origin.includes('localhost')) {
-      return callback(null, true);
-    }
-    
     if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log(`CORS: Allowing origin: ${origin}`);
       callback(null, true);
     } else {
-      console.warn(`CORS blocked origin: ${origin}`);
+      console.warn(`CORS: Blocked origin: ${origin}. Allowed origins:`, allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 };
 
 app.use(cors(corsOptions));
+
+// Explicitly handle OPTIONS requests for preflight
+app.options('*', cors(corsOptions));
 
 // Security middleware - configure helmet to work with CORS
 app.use(helmet({
